@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoGuesser Spiel</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<button id="homeButton" class="home-button">🏠</button>
+<div class="container">
+    <header>
+        <h1>GeoGuesser Spiel</h1>
+        <p class="subtitle">Teste dein Geographiewissen!</p>
+    </header>
+
+    <div class="game-container">
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="confirm-button-container">
+                <button id="confirmGuessBtn" class="success">Auswahl bestätigen</button>
+            </div>
+        </div>
+        <div class="game-panel">
+            <div class="game-screens">
+                <!-- Welcome Screen -->
+                <div id="welcomeScreen" class="welcome-screen active">
+                    <h2>Willkommen bei GeoGuesser!</h2>
+                    <p>Fordere dein Geographiewissen heraus, indem du Orte auf der ganzen Welt errätst.</p>
+                    <div class="welcome-buttons">
+                        <button id="singlePlayerWelcomeBtn">Einzelspieler</button>
+                        <button id="createMultiplayerBtn">Mehrspielerspiel erstellen</button>
+                        <button id="joinMultiplayerBtn">Mehrspielerspiel beitreten</button>
+                    </div>
+                </div>
+
+                <!-- Single Player Mode Selection Screen -->
+                <div id="modeSelectionScreen" class="mode-selection-screen">
+                    <h2>Spielmodus auswählen</h2>
+                    <div class="game-mode-grid">
+                        <!-- Game modes will be loaded dynamically -->
+                        <div style="text-align: center; padding: 20px;">
+                            <div class="spinner" style="margin: 0 auto;"></div>
+                            <p>Spielmodi werden geladen...</p>
+                        </div>
+                    </div>
+                    <button id="backFromModeBtn" class="danger" style="margin-top: 20px;">Zurück</button>
+                </div>
+
+                <!-- Create Multiplayer Game Screen -->
+                <div id="createGameScreen" class="create-game-screen">
+                    <h2>Mehrspielerspiel erstellen</h2>
+                    <div class="create-game-form">
+                        <div class="form-group">
+                            <label for="hostUsername">Dein Benutzername</label>
+                            <input type="text" id="hostUsername" class="form-control" placeholder="Gib deinen Benutzernamen ein">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="gameModeSelect">Spielmodus</label>
+                            <select id="gameModeSelect" class="form-control">
+                                <!-- Options will be loaded dynamically -->
+                                <option value="">Spielmodi werden geladen...</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="roundDuration">Rundendauer (Sekunden)</label>
+                            <input type="number" id="roundDuration" class="form-control" value="60" min="10" max="300">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="totalRounds">Anzahl der Runden</label>
+                            <input type="number" id="totalRounds" class="form-control" value="10" min="3" max="20">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="resultDelay">Ergebnisanzeige-Dauer (Sekunden)</label>
+                            <input type="number" id="resultDelay" class="form-control" value="10" min="5" max="60">
+                            <small style="display: block; margin-top: 5px; color: #666;">Zeit, um Ergebnisse anzuzeigen, nachdem alle Spieler geraten haben</small>
+                        </div>
+
+                        <button id="createRoomBtn" class="success">Raum erstellen</button>
+                        <button id="backFromCreateGameBtn" class="danger">Zurück</button>
+                    </div>
+
+                    <!-- Waiting Room (shows after room is created) -->
+                    <div id="waitingRoom" class="waiting-room" style="display: none;">
+                        <h3>Raum erstellt</h3>
+                        <p>Teile diesen Code mit anderen Spielern:</p>
+                        <div class="code-display" id="roomCodeDisplay">------</div>
+                        <h4>Spieler im Raum:</h4>
+                        <div class="waiting-players" id="waitingPlayers">
+                            <!-- Players will be listed here -->
+                        </div>
+                        <button id="startGameBtn" class="success" disabled>Spiel starten (Weitere Spieler benötigt)</button>
+                    </div>
+                </div>
+
+                <!-- Join Game Screen -->
+                <div id="joinGameScreen" class="join-screen">
+                    <h2>Mehrspielerspiel beitreten</h2>
+                    <div class="create-game-form" id="joinForm">
+                        <div class="form-group">
+                            <label for="joinUsername">Dein Benutzername</label>
+                            <input type="text" id="joinUsername" class="form-control" placeholder="Gib deinen Benutzernamen ein">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="roomCode">Raumcode</label>
+                            <input type="text" id="roomCode" class="form-control" placeholder="6-stelligen Code eingeben" maxlength="6">
+                        </div>
+
+                        <button id="joinRoomBtn" class="success">Raum beitreten</button>
+                        <button id="backFromJoinBtn" class="danger">Zurück</button>
+                    </div>
+
+                    <div id="joinErrorMsg" style="color: var(--danger); margin-top: 10px;"></div>
+
+                    <!-- Waiting for host (shows after joining the room) -->
+                    <div id="waitingForHost" style="display: none; text-align: center;">
+                        <h3>Warten auf Spielstart</h3>
+                        <div class="current-player" style="margin: 20px 0; font-size: 1.2rem; font-weight: bold;">
+                            Spielt als: <span id="joinedPlayerName"></span>
+                        </div>
+                        <div class="loader">
+                            <div class="spinner"></div>
+                            <p>Warten auf Spielstart durch den Gastgeber...</p>
+                        </div>
+                        <div id="joinedPlayers" class="waiting-players" style="margin-top: 20px;"></div>
+                    </div>
+                </div>
+
+                <!-- Game Screen -->
+                <div id="gameScreen" class="game-screen">
+                    <div class="game-info" style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <span>Modus: <span id="currentGameMode">-</span></span>
+                        <span style="display: none;">Raum: <span id="currentRoomCode">-</span></span>
+                    </div>
+
+                    <div class="city-display">
+                        <p>Aktueller Ort:</p>
+                        <div class="city-name" id="currentLocation">-</div>
+                        <div class="timer-display" id="timer" style="display: none;">00:00</div>
+                    </div>
+
+                    <div id="playersStatus" style="margin-top: 10px; margin-bottom: 10px; display: none;">
+                        <!-- Player status will be shown here -->
+                    </div>
+
+                    <div class="result">
+                        <p id="resultText">Deine Entfernung zum tatsächlichen Ort:</p>
+                        <div class="distance" id="distance">--</div>
+                        <div id="pointsEarned"></div>
+                        <p id="accuracyText"></p>
+                        <!-- Add this new element for the countdown -->
+                        <div class="result-countdown" id="resultCountdown" style="display: none; margin-top: 10px; padding: 5px 10px; background-color: #4f5d75; color: white; border-radius: 4px; text-align: center; font-weight: bold;">
+                            Nächster Ort in: 10s
+                        </div>
+                    </div>
+
+                    <div class="stats">
+                        <div class="stats-item">
+                            <span>Runde</span>
+                            <span class="stats-value"><span id="currentRound">0</span>/<span id="maxRounds">10</span></span>
+                        </div>
+                        <div class="stats-item">
+                            <span>Deine Punkte</span>
+                            <span class="stats-value" id="playerScore">0</span>
+                        </div>
+                    </div>
+
+                    <button id="startButton">Spiel starten</button>
+
+                    <div id="leaderboardContainer" style="margin-top: 15px; display: none;">
+                        <h3>Bestenliste</h3>
+                        <table class="leaderboard" id="leaderboard">
+                            <thead>
+                            <tr>
+                                <th class="rank-column">#</th>
+                                <th>Spieler</th>
+                                <th>Punkte</th>
+                                <th>Letzte Schätzung</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <!-- Leaderboard data will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Game Over Modal -->
+<div class="modal-backdrop" id="gameOverModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Spiel beendet!</h2>
+        </div>
+        <div class="modal-body" id="gameOverContent">
+            <p>Endergebnisse:</p>
+            <div id="finalLeaderboard"></div>
+        </div>
+        <div class="modal-footer">
+            <button id="newGameBtn">Neues Spiel</button>
+            <button id="backToMenuBtn">Zurück zum Menü</button>
+        </div>
+    </div>
+</div>
+
+<!-- Error Modal -->
+<div class="modal-backdrop" id="errorModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Fehler</h2>
+        </div>
+        <div class="modal-body">
+            <p id="errorMessage">Ein Fehler ist aufgetreten.</p>
+        </div>
+        <div class="modal-footer">
+            <button id="closeErrorBtn">Schließen</button>
+        </div>
+    </div>
+</div>
+
+<!-- Load libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+
+<!-- Load application modules -->
+<script src="js/gameState.js"></script>
+<script src="js/mapUtils.js"></script>
+<script src="js/uiController.js"></script>
+<script src="js/scoreUtils.js"></script>
+<script src="js/singlePlayerGame.js"></script>
+<script src="js/multiplayerGame.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

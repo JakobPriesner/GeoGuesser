@@ -258,17 +258,125 @@ function initializeMultiplayer() {
 
         // For country mode, highlight the correct country
         if (gameState.gameMode === 'countries' && window.MapUtils.countryOutlines) {
-            // ... existing country highlighting code ...
+            let targetCountryLayer = null;
+
+            window.MapUtils.countryOutlines.eachLayer(layer => {
+                const countryName = layer.feature.properties.ADMIN || layer.feature.properties.NAME;
+                if (countryName === actualLocation.name ||
+                    countryName.toLowerCase() === actualLocation.name.toLowerCase()) {
+                    targetCountryLayer = layer;
+                }
+            });
+
+            if (targetCountryLayer) {
+                // Highlight the correct country
+                targetCountryLayer.setStyle({
+                    fillColor: '#5cb85c',  // Success green
+                    fillOpacity: 0.5,
+                    weight: 3,
+                    color: '#5cb85c'
+                });
+
+                // Find my own guess
+                const myGuess = guesses.find(g => g.username === gameState.username);
+
+                if (myGuess && myGuess.selectedCountry !== actualLocation.name) {
+                    // Find the country layer for my selection
+                    let mySelectedLayer = null;
+                    window.MapUtils.countryOutlines.eachLayer(layer => {
+                        const countryName = layer.feature.properties.ADMIN || layer.feature.properties.NAME;
+                        if (countryName === myGuess.selectedCountry) {
+                            mySelectedLayer = layer;
+                        }
+                    });
+
+                    if (mySelectedLayer) {
+                        // Highlight my wrong selection
+                        mySelectedLayer.setStyle({
+                            fillColor: '#d9534f',  // Danger red
+                            fillOpacity: 0.3,
+                            weight: 2,
+                            color: '#d9534f'
+                        });
+
+                        // Draw line from my selection to the actual location
+                        const selectedBounds = mySelectedLayer.getBounds();
+                        const selectedCenter = selectedBounds.getCenter();
+
+                        const polyline = window.MapUtils.drawLine(
+                            selectedCenter.lat, selectedCenter.lng,
+                            actualLatLng.lat, actualLatLng.lng,
+                            '#d9534f'  // red line
+                        );
+                    }
+                }
+            }
         }
 
         // Create markers for all guesses and lines to actual location
         guesses.forEach(guess => {
-            // ... existing marker creation code ...
+            // Skip country mode when drawing markers
+            if (gameState.gameMode === 'countries') {
+                return;
+            }
+
+            // Create enhanced markers with player names showing
+            const marker = window.MapUtils.createMarker(
+                guess.lat,
+                guess.lng,
+                guess.color,
+                guess.username,
+                false
+            );
+
+            // Only draw lines for all players
+            window.MapUtils.drawLine(
+                guess.lat, guess.lng,
+                actualLocation.lat, actualLocation.lng,
+                guess.color
+            );
         });
 
         // Fit map to show all markers
         const bounds = [];
-        // ... existing bounds calculation code ...
+        bounds.push([actualLocation.lat, actualLocation.lng]);
+
+        if (gameState.gameMode !== 'countries') {
+            guesses.forEach(guess => bounds.push([guess.lat, guess.lng]));
+        } else {
+            // For country mode, make sure the correct country is visible
+            let targetCountryLayer = null;
+            window.MapUtils.countryOutlines.eachLayer(layer => {
+                const countryName = layer.feature.properties.ADMIN || layer.feature.properties.NAME;
+                if (countryName === actualLocation.name) {
+                    targetCountryLayer = layer;
+                }
+            });
+
+            if (targetCountryLayer) {
+                const countryBounds = targetCountryLayer.getBounds();
+                bounds.push([countryBounds.getSouthWest().lat, countryBounds.getSouthWest().lng]);
+                bounds.push([countryBounds.getNorthEast().lat, countryBounds.getNorthEast().lng]);
+            }
+
+            // Also include my selected country if it was wrong
+            const myGuess = guesses.find(g => g.username === gameState.username);
+            if (myGuess && myGuess.selectedCountry !== actualLocation.name) {
+                let mySelectedLayer = null;
+                window.MapUtils.countryOutlines.eachLayer(layer => {
+                    const countryName = layer.feature.properties.ADMIN || layer.feature.properties.NAME;
+                    if (countryName === myGuess.selectedCountry) {
+                        mySelectedLayer = layer;
+                    }
+                });
+
+                if (mySelectedLayer) {
+                    const myBounds = mySelectedLayer.getBounds();
+                    bounds.push([myBounds.getSouthWest().lat, myBounds.getSouthWest().lng]);
+                    bounds.push([myBounds.getNorthEast().lat, myBounds.getNorthEast().lng]);
+                }
+            }
+        }
 
         if (bounds.length > 0) {
             window.MapUtils.map.fitBounds(bounds, { padding: [50, 50] });

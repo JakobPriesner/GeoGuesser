@@ -2,13 +2,15 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const locationService = require('./services/locationService');
+const locationService = require('./public/services/locationService');
+const favicon = require("serve-favicon");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 // Serve static files
+app.use(favicon(path.join(__dirname, 'public', 'favicon.svg')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Parse JSON bodies

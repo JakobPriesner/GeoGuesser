@@ -1,139 +1,116 @@
-function getScoringThresholds(gameMode) {
-    if (gameMode === 'german-cities') {
-        return [25, 50, 100, 200];
-    } else if (gameMode === 'european-cities') {
-        return [50, 150, 300, 600];
-    } else if (gameMode === 'world-landmarks' || gameMode === 'capitals') {
-        return [100, 300, 700, 1500];
-    } else { // countries
-        return [300, 600, 1200, 2500];
-    }
-}
+// scoreUtils.js - Updated version to use english_name property
 
 function calculateSinglePlayerScore() {
     const gameState = window.GameState.state;
     const elements = window.UIController.elements;
 
-    let distance;
-    let pointsEarned;
-    let actualLatLng;
-
-    // Get the actual coordinates for distance calculation
-    actualLatLng = L.latLng(gameState.currentLocation.lat, gameState.currentLocation.lng);
+    let distance = 0;
+    let score = 0;
+    let accuracyText = '';
 
     if (gameState.gameMode === 'countries') {
-        // For country mode, check if the selected country matches
+        // For countries mode, check if selected country matches target
         const targetCountry = gameState.currentLocation.name;
+        const targetCountryEnglish = gameState.currentLocation.english_name || targetCountry;
         const selectedCountry = gameState.selectedCountry;
 
-        // Store whether the guess is correct in gameState for reference
-        gameState.correctCountrySelected = (selectedCountry === targetCountry);
+        if (selectedCountry) {
+            // Debug logging
+            console.log(`Comparing - Target: "${targetCountry}" (English: "${targetCountryEnglish}") with Selected: "${selectedCountry}"`);
 
-        if (gameState.correctCountrySelected) {
-            // Correct country selection - full points
-            elements.distanceElement.textContent = 'Richtig!';
-            elements.accuracyTextElement.textContent = 'Perfekt! Du hast das richtige Land ausgewählt!';
-            pointsEarned = 100;
-            distance = 0;
-        } else {
-            // Wrong country - check if the center of the selected country is within the target country's boundaries
-            const selectedBounds = gameState.selectedCountryLayer.getBounds();
-            const selectedCenter = selectedBounds.getCenter();
+            // Match using English name (coming from GeoJSON) with our stored English translation
+            gameState.correctCountrySelected =
+                selectedCountry === targetCountryEnglish ||
+                selectedCountry.toLowerCase() === targetCountryEnglish.toLowerCase();
 
-            // Try to find the target country layer
-            let targetCountryLayer = null;
-            if (window.MapUtils.countryOutlines) {
-                window.MapUtils.countryOutlines.eachLayer(layer => {
-                    const countryName = layer.feature.properties.ADMIN || layer.feature.properties.NAME;
-                    if (countryName === targetCountry || countryName.toLowerCase() === targetCountry.toLowerCase()) {
-                        targetCountryLayer = layer;
-                    }
-                });
-            }
-
-            // Check if the center of the selected country is within the target country's boundaries
-            if (targetCountryLayer && targetCountryLayer.getBounds().contains(selectedCenter)) {
-                // Center is within the target country - full points
-                elements.distanceElement.textContent = 'Richtig!';
-                elements.accuracyTextElement.textContent = 'Dein ausgewähltes Land liegt im richtigen Land!';
-                pointsEarned = 100;
+            if (gameState.correctCountrySelected) {
+                score = 1000; // Full points for correct country
+                accuracyText = 'Perfekt! 🎯';
                 distance = 0;
-                // Set as correct to avoid drawing a line to the actual country
-                gameState.correctCountrySelected = true;
             } else {
-                // Wrong country - calculate distance between selection and target
-                // Get the center point of the selected country for distance calculation
-                distance = window.GameState.calculateDistance(
-                    selectedCenter.lat, selectedCenter.lng,
-                    actualLatLng.lat, actualLatLng.lng
-                );
-                const roundedDistance = Math.round(distance);
+                // Calculate distance between selected country center and target
+                if (gameState.selectedCountryLayer) {
+                    const selectedBounds = gameState.selectedCountryLayer.getBounds();
+                    const selectedCenter = selectedBounds.getCenter();
+                    const targetLatLng = L.latLng(gameState.currentLocation.lat, gameState.currentLocation.lng);
 
-                elements.distanceElement.textContent = `${roundedDistance} km`;
-                elements.accuracyTextElement.textContent = `Falsches Land ausgewählt. Das richtige Land war ${targetCountry}.`;
+                    distance = Math.round(selectedCenter.distanceTo(targetLatLng) / 1000); // km
 
-                // Use the standard distance-based scoring
-                const thresholds = getScoringThresholds(gameState.gameMode);
-
-                if (distance < thresholds[0]) {
-                    pointsEarned = 75;
-                } else if (distance < thresholds[1]) {
-                    pointsEarned = 50;
-                } else if (distance < thresholds[2]) {
-                    pointsEarned = 25;
-                } else if (distance < thresholds[3]) {
-                    pointsEarned = 10;
+                    // Score based on distance - closer = more points
+                    score = Math.max(0, Math.round(1000 - (distance / 20)));
+                    accuracyText = 'Falsch! Das war ' + distance + ' km entfernt.';
                 } else {
-                    pointsEarned = 5;
+                    score = 0;
+                    distance = '?';
+                    accuracyText = 'Falsch!';
                 }
             }
+        } else {
+            // No country selected
+            score = 0;
+            distance = '--';
+            accuracyText = 'Keine Auswahl getroffen!';
         }
     } else {
-        // For point-based modes, calculate distance as before
-        const guessLatLng = gameState.guessMarker.getLatLng();
+        // Standard point-based modes with distance calculation
+        const actualLatLng = L.latLng(gameState.currentLocation.lat, gameState.currentLocation.lng);
+        const guessLatLng = gameState.guessMarker ? gameState.guessMarker.getLatLng() : null;
 
-        distance = window.GameState.calculateDistance(
-            guessLatLng.lat, guessLatLng.lng,
-            actualLatLng.lat, actualLatLng.lng
-        );
-        const roundedDistance = Math.round(distance);
+        if (guessLatLng) {
+            distance = Math.round(guessLatLng.distanceTo(actualLatLng) / 1000); // km
 
-        elements.distanceElement.textContent = `${roundedDistance} km`;
-
-        const thresholds = getScoringThresholds(gameState.gameMode);
-
-        if (distance < thresholds[0]) {
-            elements.accuracyTextElement.textContent = 'Perfekt! Fast genau getroffen!';
-            pointsEarned = 100;
-        } else if (distance < thresholds[1]) {
-            elements.accuracyTextElement.textContent = 'Sehr gut! Ausgezeichnete Kenntnisse!';
-            pointsEarned = 75;
-        } else if (distance < thresholds[2]) {
-            elements.accuracyTextElement.textContent = 'Gute Schätzung!';
-            pointsEarned = 50;
-        } else if (distance < thresholds[3]) {
-            elements.accuracyTextElement.textContent = 'Nicht schlecht!';
-            pointsEarned = 25;
+            // Score calculation - farther = fewer points
+            if (distance < 1) {
+                score = 1000; // Perfect or very close
+                accuracyText = 'Perfekt! 🎯';
+            } else if (distance < 5) {
+                score = 900;
+                accuracyText = 'Ausgezeichnet! 🏆';
+            } else if (distance < 15) {
+                score = 800;
+                accuracyText = 'Sehr gut! 👏';
+            } else if (distance < 50) {
+                score = 650;
+                accuracyText = 'Gut! 👍';
+            } else if (distance < 200) {
+                score = 500;
+                accuracyText = 'Nicht schlecht! 🙂';
+            } else if (distance < 500) {
+                score = 250;
+                accuracyText = 'Du kannst das besser! 🤔';
+            } else if (distance < 1000) {
+                score = 100;
+                accuracyText = 'Weit daneben! 😕';
+            } else {
+                // Fix the scoring for very distant guesses
+                score = Math.max(0, Math.min(50, Math.round(100 - (distance / 500))));
+                accuracyText = 'Sehr weit daneben! 😢';
+            }
         } else {
-            elements.accuracyTextElement.textContent = 'Mehr Glück beim nächsten Mal!';
-            pointsEarned = 10;
+            // No guess made
+            score = 0;
+            distance = '--';
+            accuracyText = 'Keine Schätzung abgegeben!';
         }
     }
 
-    gameState.score += pointsEarned;
+    // Update UI
+    elements.distanceElement.textContent = typeof distance === 'number' ?
+        `${distance} km` : distance;
+    elements.accuracyTextElement.textContent = accuracyText;
+    elements.pointsEarnedElement.textContent =
+        score > 0 ? `+${score} Punkte` : '0 Punkte';
 
-    // Add points earned message
-    elements.pointsEarnedElement.textContent = `Du hast ${pointsEarned} Punkte verdient`;
-
+    // Update game state
+    gameState.score += score;
     window.UIController.updateScoreDisplay();
 
-    return {
-        distance: typeof distance === 'number' ? Math.round(distance) : distance,
-        points: pointsEarned
-    };
+    console.log("Score calculation complete:", score, "points, total:", gameState.score);
+
+    return score;
 }
 
+// Export score utilities
 window.ScoreUtils = {
-    getScoringThresholds,
     calculateSinglePlayerScore
 };

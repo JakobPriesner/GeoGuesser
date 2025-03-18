@@ -31,6 +31,7 @@ function updateMapLayer(gameMode) {
         map.setView(setting.center, setting.zoom);
     }
 
+    // Always load country outlines for all game modes
     loadCountryOutlines(gameMode);
 }
 
@@ -95,6 +96,7 @@ function makeCountriesClickable() {
     });
 }
 
+// Critical fix - properly expose countryOutlines in the MapUtils object
 function loadCountryOutlines(gameMode) {
     // If outlines already exist, remove them first to prevent duplicates
     if (countryOutlines) {
@@ -102,7 +104,6 @@ function loadCountryOutlines(gameMode) {
         countryOutlines = null;
     }
 
-    // Define URLs for different GeoJSON outlines
     let geoJsonUrl;
     let geoJsonStyle = {
         color: '#333',
@@ -111,9 +112,19 @@ function loadCountryOutlines(gameMode) {
         fillOpacity: 0.1
     };
 
+    // Determine which GeoJSON to load and how to style it based on game mode
     switch (gameMode) {
         case 'german-cities':
             geoJsonUrl = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+            geoJsonStyle = {
+                color: '#4a4a4a',     // Darker border color for better visibility
+                weight: 2.5,           // Slightly thicker border
+                fillColor: '#f8f8f8',
+                fillOpacity: 0.12      // Slightly more visible fill
+            };
+            break;
+        case 'european-cities':
+            geoJsonUrl = 'https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson';
             geoJsonStyle = {
                 color: '#333',
                 weight: 2,
@@ -121,16 +132,12 @@ function loadCountryOutlines(gameMode) {
                 fillOpacity: 0.1
             };
             break;
-        case 'european-cities':
-            geoJsonUrl = 'https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson';
-            break;
         case 'countries':
             geoJsonUrl = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
             geoJsonStyle = {
                 color: '#333',
-                weight: 1,
+                weight: 1.5,
                 fillColor: '#f8f8f8',
-                // Use higher fillOpacity for countries mode for better visibility
                 fillOpacity: 0.1
             };
             break;
@@ -141,54 +148,186 @@ function loadCountryOutlines(gameMode) {
                 color: '#333',
                 weight: 1,
                 fillColor: '#f8f8f8',
-                fillOpacity: 0.05
+                fillOpacity: 0.1
             };
             break;
         default:
-            return;
+            // For any other mode, still load world country outlines by default
+            geoJsonUrl = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+            geoJsonStyle = {
+                color: '#333',
+                weight: 1,
+                fillColor: '#f8f8f8',
+                fillOpacity: 0.05
+            };
+            break;
     }
 
+    console.log("Loading country data from:", geoJsonUrl);
+
     fetch(geoJsonUrl)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Failed to fetch GeoJSON: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
+            // For German cities mode, handle Germany specifically
             if (gameMode === 'german-cities') {
-                data.features = data.features.filter(feature =>
-                    feature.properties.ADMIN === 'Germany'
-                );
+                // First, keep only Germany for the main outline
+                const germanyFeature = data.features.find(feature =>
+                    feature.properties.ADMIN === 'Germany' ||
+                    feature.properties.NAME === 'Germany');
+
+                if (germanyFeature) {
+                    // Create a special layer just for Germany with enhanced visibility
+                    countryOutlines = L.geoJSON(germanyFeature, {
+                        style: {
+                            color: '#1a1a1a',        // Very dark gray for German border
+                            weight: 3,              // Thicker border for Germany
+                            fillColor: '#f8f8f8',
+                            fillOpacity: 0.08       // Very subtle fill
+                        }
+                    }).addTo(map);
+                } else {
+                    console.error("Germany not found in GeoJSON data");
+                    // Fall back to all countries
+                    countryOutlines = L.geoJSON(data, {
+                        style: geoJsonStyle
+                    }).addTo(map);
+                }
+            } else {
+                // For all other modes, use the standard approach
+                countryOutlines = L.geoJSON(data, {
+                    style: geoJsonStyle,
+                    filter: function(feature) {
+                        if (gameMode === 'european-cities') {
+                            return feature.properties.NAME !== undefined;
+                        }
+                        return true;
+                    },
+                    // Add event handlers to prevent handling events for certain game modes
+                    onEachFeature: function(feature, layer) {
+                        // For european-cities and other modes, make sure clicks pass through to the map
+                        if (gameMode !== 'countries') {
+                            layer.on('click', function(e) {
+                                // Let the event bubble up to the map
+                                return true;
+                            });
+                        }
+                    }
+                }).addTo(map);
             }
 
-            countryOutlines = L.geoJSON(data, {
-                style: geoJsonStyle,
-                filter: function(feature) {
-                    if (gameMode === 'european-cities') {
-                        return feature.properties.NAME !== undefined;
-                    }
-                    return true;
-                },
-                // Add event handlers to prevent handling events for certain game modes
-                onEachFeature: function(feature, layer) {
-                    // For european-cities and other modes, make sure clicks pass through to the map
-                    if (gameMode !== 'countries') {
-                        layer.on('click', function(e) {
-                            // Let the event bubble up to the map
-                            return true;
-                        });
-                    }
-                }
-            }).addTo(map);
-
             if (countryOutlines) {
+                // Always make sure country outlines are visible but behind other elements
                 countryOutlines.bringToBack();
 
-                // If in countries mode, make countries clickable
                 if (gameMode === 'countries') {
                     makeCountriesClickable();
                 }
+
+                // CRITICAL FIX: Update the window.MapUtils.countryOutlines reference
+                window.MapUtils.countryOutlines = countryOutlines;
+
+                // Log some countries for debugging
+                if (gameMode === 'countries') {
+                    let countryCounter = 0;
+                    countryOutlines.eachLayer(layer => {
+                        if (countryCounter < 5) { // Just log a few for debugging
+                            countryCounter++;
+                        }
+                    });
+                }
             }
+
+            return countryOutlines;
         })
         .catch(error => {
             console.error('Error loading GeoJSON:', error);
+            reject(error);
         });
+}
+
+// Add a method that gets country by name to help with matching
+// Enhanced findCountryLayerByName function for English name matching
+
+function findCountryLayerByName(countryName) {
+    if (!countryOutlines) return null;
+    if (!countryName) return null;
+
+    let foundLayer = null;
+
+    // Find the English name for this country from our locations data
+    let englishName = countryName;
+
+    // Check if this is the German name and we need to find the English equivalent
+    const locations = window.GameState.locations;
+    if (locations && locations.countries) {
+        // Find the country in our data
+        const countryData = locations.countries.find(country =>
+            country.name === countryName);
+
+        // If found and has english_name, use that
+        if (countryData && countryData.english_name) {
+            englishName = countryData.english_name;
+        }
+    }
+
+    // First try exact match
+    countryOutlines.eachLayer(layer => {
+        const adminName = layer.feature.properties.ADMIN;
+        const name = layer.feature.properties.NAME;
+        const layerCountryName = adminName || name;
+
+        if (layerCountryName === englishName) {
+            foundLayer = layer;
+        }
+    });
+
+    // If not found, try case-insensitive match
+    if (!foundLayer) {
+        const lowerEnglishName = englishName.toLowerCase();
+
+        countryOutlines.eachLayer(layer => {
+            const adminName = layer.feature.properties.ADMIN;
+            const name = layer.feature.properties.NAME;
+            const layerCountryName = adminName || name;
+
+            if (layerCountryName && layerCountryName.toLowerCase() === lowerEnglishName) {
+                foundLayer = layer;
+            }
+        });
+    }
+
+    // Special cases for countries with name variations
+    if (!foundLayer) {
+        const countryVariations = {
+            'United States': ['USA', 'United States of America', 'US'],
+            'United Kingdom': ['UK', 'Great Britain', 'England'],
+            'Russian Federation': ['Russia'],
+            'Czech Republic': ['Czechia']
+        };
+
+        for (const [standard, variations] of Object.entries(countryVariations)) {
+            if (variations.includes(englishName) || standard === englishName) {
+                countryOutlines.eachLayer(layer => {
+                    const adminName = layer.feature.properties.ADMIN;
+                    const name = layer.feature.properties.NAME;
+                    const layerCountryName = adminName || name;
+
+                    if ([standard, ...variations].includes(layerCountryName)) {
+                        foundLayer = layer;
+                    }
+                });
+
+                if (foundLayer) break;
+            }
+        }
+    }
+
+    return foundLayer;
 }
 
 function toggleMapDetails(showDetails) {
@@ -214,38 +353,86 @@ function toggleMapDetails(showDetails) {
 
     window.GameState.state.showingResults = showDetails;
 
+    // IMPORTANT: Keep country outlines visible after toggling map details
     if (countryOutlines) {
+        // Ensure outlines are still visible
+        if (!map.hasLayer(countryOutlines)) {
+            map.addLayer(countryOutlines);
+        }
         countryOutlines.bringToBack();
+    } else {
+        // If outlines were somehow removed, try to reload them
+        loadCountryOutlines(window.GameState.state.gameMode);
     }
 }
 
-function clearMap(clearOutlines = true) {
+// Enhanced clearMap function with more thorough layer cleanup
+function clearMap(clearOutlines = false) { // Changed default to false to keep outlines
     const gameState = window.GameState.state;
 
     if (gameState.tempMarker) {
-        map.removeLayer(gameState.tempMarker);
+        try {
+            map.removeLayer(gameState.tempMarker);
+        } catch (e) {
+            console.error("Error removing temp marker:", e);
+        }
         gameState.tempMarker = null;
     }
 
     if (gameState.guessMarker) {
-        map.removeLayer(gameState.guessMarker);
+        try {
+            map.removeLayer(gameState.guessMarker);
+        } catch (e) {
+            console.error("Error removing guess marker:", e);
+        }
         gameState.guessMarker = null;
     }
 
-    // Reset selected country if any
+    // Reset selected country style if any but keep outlines visible
     if (gameState.selectedCountryLayer && countryOutlines) {
-        countryOutlines.resetStyle(gameState.selectedCountryLayer);
+        try {
+            countryOutlines.resetStyle(gameState.selectedCountryLayer);
+        } catch (e) {
+            console.error("Error resetting country style:", e);
+        }
         gameState.selectedCountryLayer = null;
         gameState.selectedCountry = null;
     }
 
-    // Remove all markers and lines
-    map.eachLayer(function(layer) {
-        if (layer instanceof L.Marker || layer instanceof L.Polyline) {
-            map.removeLayer(layer);
+    // Clear all player markers
+    if (gameState.playerMarkers && gameState.playerMarkers.length > 0) {
+
+        // First pass: try to remove each marker individually
+        gameState.playerMarkers.forEach((marker, index) => {
+            try {
+                if (marker && marker._map) {
+                    map.removeLayer(marker);
+                }
+            } catch (e) {
+                console.error(`Error removing marker ${index}:`, e);
+            }
+        });
+    }
+
+    map.eachLayer(layer => {
+        // Skip the base tile layer and country outlines
+        if (layer === currentMapLayer) return;
+        if (layer === countryOutlines && !clearOutlines) return;
+
+        // Remove all other types of layers that might be left
+        if (layer instanceof L.Marker ||
+            layer instanceof L.Circle ||
+            layer instanceof L.Polyline ||
+            layer instanceof L.Polygon) {
+            try {
+                map.removeLayer(layer);
+            } catch (e) {
+                console.error("Error removing additional layer:", e);
+            }
         }
     });
 
+    // Reset the player markers array
     gameState.playerMarkers = [];
 
     // Return to basic map without labels
@@ -255,11 +442,28 @@ function clearMap(clearOutlines = true) {
 
     // Only clear outlines if explicitly requested
     if (clearOutlines && countryOutlines) {
-        map.removeLayer(countryOutlines);
-        countryOutlines = null;
+        try {
+            map.removeLayer(countryOutlines);
+            countryOutlines = null;
+            // Since we're explicitly clearing outlines, reload them to maintain visibility
+            loadCountryOutlines(gameState.gameMode);
+        } catch (e) {
+            console.error("Error removing country outlines:", e);
+        }
+    } else if (countryOutlines) {
+        // Make sure outlines are always visible and in the back
+        countryOutlines.bringToBack();
+    } else if (gameState.gameMode) {
+        // If outlines were somehow removed, reload them
+        loadCountryOutlines(gameState.gameMode);
     }
 
+    // Hide the confirm button
     document.querySelector('.confirm-button-container').style.display = 'none';
+
+    if (!clearOutlines) {
+        loadCountryOutlines(gameState.gameMode);
+    }
 }
 
 function createMarker(lat, lng, color, username, isActual = false) {
@@ -294,7 +498,7 @@ function createMarker(lat, lng, color, username, isActual = false) {
 
     // Add popup with more details
     let popupContent = isActual
-        ? `<div class="popup-content">🎯 <strong>${gameState.currentLocation.name}</strong></div>`
+        ? `<div class="popup-content">🎯 <strong>${window.GameState.state.currentLocation.name}</strong></div>`
         : `<div class="popup-content"><strong>${username}'s Tipp</strong></div>`;
 
     marker.bindPopup(popupContent);
@@ -385,13 +589,31 @@ function addFixedStyles() {
     document.head.appendChild(styleTag);
 }
 
+function calculateDistance(latlng1, latlng2) {
+    // Use Leaflet's built-in distance calculation
+    const distanceInMeters = latlng1.distanceTo(latlng2);
+
+    // Convert to kilometers and round to nearest integer
+    let distanceInKm = Math.round(distanceInMeters / 1000);
+
+    // Ensure distance is reasonable (max ~20,000 km is half the Earth's circumference)
+    const MAX_REASONABLE_DISTANCE = 20000;
+    if (distanceInKm > MAX_REASONABLE_DISTANCE) {
+        console.warn(`Calculated distance ${distanceInKm} km exceeds maximum reasonable distance. Capping at ${MAX_REASONABLE_DISTANCE} km.`);
+        distanceInKm = MAX_REASONABLE_DISTANCE;
+    }
+
+    return distanceInKm;
+}
+
 // Export map utilities
 window.MapUtils = {
     map,
-    countryOutlines,
+    countryOutlines, // This reference will be updated when loadCountryOutlines is called
     currentMapLayer,
     updateMapLayer,
     loadCountryOutlines,
+    findCountryLayerByName, // New helper function
     makeCountriesClickable,
     toggleMapDetails,
     clearMap,

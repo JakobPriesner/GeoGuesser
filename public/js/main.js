@@ -1,15 +1,12 @@
-// main.js - Main initialization and event binding
+// main.js - Application initialization and event binding
 
 // Initialize everything when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
-    // Initialize variables
-    const gameState = window.GameState.state;
+    // Initialize references
+    const engine = window.GameEngine;
+    const apiService = window.ApiService;
     const elements = window.UIController.elements;
     const map = window.MapUtils.map;
-
-    // Store for our countdown intervals
-    window.countdownInterval = null;
-    window.resultCountdownInterval = null;
 
     // Force map to render properly
     setTimeout(() => {
@@ -37,22 +34,21 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Home button - Reset the game
     elements.homeButton.addEventListener('click', () => {
-        resetGame();
+        engine.resetState();
         window.UIController.showScreen('welcomeScreen');
     });
 
     // Map click event - ensure it works for non-countries modes
     map.on('click', (e) => {
-        if (gameState.active && !gameState.hasGuessed) {
+        if (engine.state.active && !engine.state.hasGuessed) {
             // For countries mode, country selection is handled by the country layer click events
-            // Only handle click for non-countries modes
-            if (gameState.gameMode !== 'countries') {
+            if (engine.state.gameMode !== 'countries') {
                 // Place temporary marker
-                if (gameState.tempMarker) {
-                    map.removeLayer(gameState.tempMarker);
+                if (engine.state.tempMarker) {
+                    map.removeLayer(engine.state.tempMarker);
                 }
 
-                gameState.tempMarker = L.marker(e.latlng, {
+                engine.state.tempMarker = L.marker(e.latlng, {
                     icon: L.divIcon({
                         className: 'custom-div-icon',
                         html: `<div style="background-color: #aaa; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white;"></div>`,
@@ -68,62 +64,60 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Confirm guess button
     elements.confirmGuessBtn.addEventListener('click', () => {
-        if (gameState.gameMode === 'countries') {
+        if (engine.state.gameMode === 'countries') {
             // For countries mode, check if a country is selected
-            if (gameState.selectedCountry && !gameState.hasGuessed) {
-                if (gameState.multiplayer) {
+            if (engine.state.selectedCountry && !engine.state.hasGuessed) {
+                if (engine.state.multiplayer) {
                     // Mark as guessed first to prevent double submissions
-                    gameState.hasGuessed = true;
+                    engine.state.hasGuessed = true;
 
                     // Submit guess to server for multiplayer
-                    // For now, submitting coordinates of the selected country centroid
-                    // and the selected country name
-                    const bounds = gameState.selectedCountryLayer.getBounds();
+                    const bounds = engine.state.selectedCountryLayer.getBounds();
                     const center = bounds.getCenter();
-                    window.MultiplayerGame.submitGuess(center.lat, center.lng);
+                    engine.submitMultiplayerGuess(center.lat, center.lng);
 
                     // Hide confirm buttons
                     elements.confirmBtnContainer.style.display = 'none';
                 } else {
                     // Handle single player guess with country
-                    window.SinglePlayerGame.handleSinglePlayerGuess(null);
+                    engine.handleSinglePlayerGuess(null);
                 }
             }
-        } else if (gameState.tempMarker && !gameState.hasGuessed) {
+        } else if (engine.state.tempMarker && !engine.state.hasGuessed) {
             // Standard point-based mode
-            const latlng = gameState.tempMarker.getLatLng();
+            const latlng = engine.state.tempMarker.getLatLng();
 
-            if (gameState.multiplayer) {
+            if (engine.state.multiplayer) {
                 // Mark as guessed first to prevent double submissions
-                gameState.hasGuessed = true;
+                engine.state.hasGuessed = true;
 
                 // Submit guess to server for multiplayer
-                window.MultiplayerGame.submitGuess(latlng.lat, latlng.lng);
+                engine.submitMultiplayerGuess(latlng.lat, latlng.lng);
 
                 // Hide confirm buttons
                 elements.confirmBtnContainer.style.display = 'none';
             } else {
                 // Handle single player guess
-                window.SinglePlayerGame.handleSinglePlayerGuess(latlng);
+                engine.handleSinglePlayerGuess(latlng);
             }
         }
     });
 
     // Welcome screen buttons
     elements.singlePlayerWelcomeBtn.addEventListener('click', () => {
-        gameState.multiplayer = false;
+        engine.state.multiplayer = false;
         window.UIController.showScreen('modeSelectionScreen');
     });
 
     elements.createMultiplayerBtn.addEventListener('click', () => {
-        gameState.multiplayer = true;
-        window.MultiplayerGame.initializeMultiplayer();
+        engine.state.multiplayer = true;
+        engine.initializeMultiplayer();
         window.UIController.showScreen('createGameScreen');
     });
 
     elements.joinMultiplayerBtn.addEventListener('click', () => {
-        gameState.multiplayer = true;
-        window.MultiplayerGame.initializeMultiplayer();
+        engine.state.multiplayer = true;
+        engine.initializeMultiplayer();
         window.UIController.showScreen('joinGameScreen');
     });
 
@@ -135,26 +129,16 @@ window.addEventListener('DOMContentLoaded', () => {
     // Start button for single player
     if (elements.startButton) {
         elements.startButton.addEventListener('click', () => {
-            if (!gameState.active) {
-                window.SinglePlayerGame.startSinglePlayerGame();
-            } else if (gameState.hasGuessed) {
+            if (!engine.state.active) {
+                engine.startSinglePlayerGame();
+            } else if (engine.state.hasGuessed) {
                 // Clear any existing countdown before proceeding
-                if (window.countdownInterval) {
-                    clearInterval(window.countdownInterval);
-                    window.countdownInterval = null;
-                }
+                engine.clearCountdowns();
 
-                // Clear any result countdown
-                if (window.resultCountdownInterval) {
-                    clearInterval(window.resultCountdownInterval);
-                    window.resultCountdownInterval = null;
-                    elements.resultCountdownElement.style.display = 'none';
-                }
-
-                if (gameState.round >= gameState.totalRounds) {
-                    window.SinglePlayerGame.endSinglePlayerGame();
+                if (engine.state.round >= engine.state.totalRounds) {
+                    engine.endSinglePlayerGame();
                 } else {
-                    window.SinglePlayerGame.nextSinglePlayerRound();
+                    engine.nextSinglePlayerRound();
                 }
             }
         });
@@ -173,7 +157,7 @@ window.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        window.MultiplayerGame.createRoom(username, gameMode, roundDuration, totalRounds, resultDelay);
+        engine.createRoom(username, gameMode, roundDuration, totalRounds, resultDelay);
     });
 
     elements.backFromCreateGameBtn.addEventListener('click', () => {
@@ -195,7 +179,7 @@ window.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        window.MultiplayerGame.joinRoom(username, roomCode);
+        engine.joinRoom(username, roomCode);
     });
 
     elements.backFromJoinBtn.addEventListener('click', () => {
@@ -204,25 +188,25 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Start game button
     elements.startGameBtn.addEventListener('click', () => {
-        window.MultiplayerGame.startGame();
+        engine.startMultiplayerGame();
     });
 
     // Game over modal buttons - Updated for restart/rejoin
     elements.newGameBtn.addEventListener('click', () => {
         elements.gameOverModal.style.display = 'none';
 
-        if (gameState.multiplayer) {
-            // Use the new restart/rejoin functionality
-            window.MultiplayerGame.restartGame();
+        if (engine.state.multiplayer) {
+            // Use the restart/rejoin functionality
+            engine.restartMultiplayerGame();
         } else {
             window.UIController.showScreen('modeSelectionScreen');
         }
     });
 
-    // Updated back to menu button to also reset the game
+    // Back to menu button
     elements.backToMenuBtn.addEventListener('click', () => {
         elements.gameOverModal.style.display = 'none';
-        resetGame();
+        engine.resetState();
         window.UIController.showScreen('welcomeScreen');
     });
 
@@ -231,53 +215,11 @@ window.addEventListener('DOMContentLoaded', () => {
         elements.errorModal.style.display = 'none';
     });
 
-    // Comprehensive reset function
-    function resetGame() {
-        // Disconnect from socket if in multiplayer mode
-        if (window.MultiplayerGame.socket && gameState.roomCode) {
-            window.MultiplayerGame.socket.disconnect();
-        }
-
-        // Clear any countdown in progress
-        if (window.countdownInterval) {
-            clearInterval(window.countdownInterval);
-            window.countdownInterval = null;
-        }
-
-        // Clear any result countdown
-        if (window.resultCountdownInterval) {
-            clearInterval(window.resultCountdownInterval);
-            window.resultCountdownInterval = null;
-            elements.resultCountdownElement.style.display = 'none';
-        }
-
-        // Clear the map
-        window.MapUtils.clearMap(true);
-
-        // Reset map to default view
-        map.setView([30, 0], 2);
-
-        // Reset game state
-        window.GameState.resetGameState();
-
-        // Reset UI elements
-        window.UIController.resetUI();
-    }
-
-    // Fetch game modes from the server
+    // Initialize the game engine
     async function init() {
         try {
-            // Fetch game modes
-            await window.GameState.fetchGameModes();
-
-            // Log to debug
-            console.log("Game modes loaded:", window.GameState.gameModes.length);
-
-            // Populate selectors
-            window.UIController.populateGameModeSelectors();
-
-            // Fetch locations for single player
-            await window.GameState.fetchLocations();
+            await engine.initialize();
+            console.log("Game initialized successfully");
         } catch (error) {
             console.error("Initialization error:", error);
             window.UIController.showError('Spielinhalte konnten nicht geladen werden. Bitte Seite neu laden.');
@@ -287,3 +229,70 @@ window.addEventListener('DOMContentLoaded', () => {
     // Start initialization
     init();
 });
+
+(function() {
+    console.log("Initializing enhanced multiplayer country selection");
+
+    // Make sure MapUtils has the new method by checking if it exists
+    if (!window.MapUtils.prepareCountrySelectForMultiplayer) {
+        // Add the method if it doesn't exist
+        window.MapUtils.prepareCountrySelectForMultiplayer = function() {
+            // Make sure outlines are loaded
+            if (!this.countryOutlines && window.GameEngine.state.gameMode === 'countries') {
+                console.log("Loading country outlines for multiplayer");
+                this.loadCountryOutlines('countries')
+                    .then(() => {
+                        this.makeCountriesClickable();
+                    })
+                    .catch(err => {
+                        console.error("Failed to load country outlines:", err);
+                    });
+            } else if (this.countryOutlines) {
+                // Make sure countries are clickable
+                this.makeCountriesClickable();
+            }
+        };
+    }
+
+    // Create a custom event handler for map setup after joining a room
+    document.addEventListener('roomJoined', function(e) {
+        if (window.GameEngine.state.gameMode === 'countries') {
+            console.log("Room joined event detected - preparing map for countries mode");
+            window.MapUtils.prepareCountrySelectForMultiplayer();
+        }
+    });
+
+    // Create a custom event handler for new rounds
+    document.addEventListener('newRound', function(e) {
+        if (window.GameEngine.state.gameMode === 'countries') {
+            console.log("New round event detected - preparing map for countries mode");
+            window.MapUtils.prepareCountrySelectForMultiplayer();
+        }
+    });
+
+    // Enhance the existing socket handlers to trigger our custom events
+    const originalSocketOn = window.GameEngine.socket && window.GameEngine.socket.on;
+    if (originalSocketOn) {
+        window.GameEngine.socket.on = function(event, handler) {
+            if (event === 'roomJoined') {
+                const enhancedHandler = function(data) {
+                    handler(data);
+                    document.dispatchEvent(new CustomEvent('roomJoined', { detail: data }));
+                };
+                originalSocketOn.call(this, event, enhancedHandler);
+            }
+            else if (event === 'newRound') {
+                const enhancedHandler = function(data) {
+                    handler(data);
+                    document.dispatchEvent(new CustomEvent('newRound', { detail: data }));
+                };
+                originalSocketOn.call(this, event, enhancedHandler);
+            }
+            else {
+                originalSocketOn.call(this, event, handler);
+            }
+        };
+    }
+
+    console.log("Enhanced multiplayer country selection initialized");
+})();
